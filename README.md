@@ -2,6 +2,24 @@
 
 Personal AI assistant for your TradingView Desktop charts. Connects Claude Code to your locally running TradingView app via Chrome DevTools Protocol for AI-assisted chart analysis, Pine Script development, and workflow automation.
 
+## Fork Highlights
+
+This fork adds a practical runtime layer on top of the original TradingView MCP bridge:
+
+- **Admin-only Telegram bot** for remote control of the local `tv` CLI
+- **Automatic signal monitoring** for `TuanAnh_Gann_Final` (`GT`) and `Money Printer` (`BUY` / `SELL`)
+- **Alert screenshots** attached directly in Telegram
+- **Zoomed alert images** that focus on the newest candles instead of sending the full chart every time
+- **Docker packaging** for the Telegram bot and MCP runtime
+- **Windows browser fallback** for environments where the TradingView Desktop MSIX build does not expose CDP
+
+## Security Notes
+
+- Keep `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_ID`, and local CDP settings in `.env.telegram` or other local environment files only.
+- Do **not** commit `.env`, `.env.local`, or `.env.telegram`.
+- The tracked example file `.env.telegram.example` uses placeholders only.
+- Telegram access is restricted to the configured admin user.
+
 > [!WARNING]
 > **This tool is not affiliated with, endorsed by, or associated with TradingView Inc.** It interacts with your locally running TradingView Desktop application via Chrome DevTools Protocol. Review the [Disclaimer](#disclaimer) before use.
 
@@ -72,7 +90,7 @@ Gives your AI assistant eyes and hands on your own chart:
 
 Paste this into Claude Code and it will handle the rest:
 
-> Install the TradingView MCP server. Clone https://github.com/tradesdontlie/tradingview-mcp.git, run npm install, add it to my MCP config at ~/.claude/.mcp.json, and launch TradingView with the debug port. Then verify the connection with tv_health_check.
+> Install the TradingView MCP server. Clone https://github.com/vinhcotam/my-tradingview-mcp.git, run npm install, add it to my MCP config at ~/.claude/.mcp.json, and launch TradingView with the debug port. Then verify the connection with tv_health_check.
 
 Or follow the manual steps below.
 
@@ -138,6 +156,21 @@ The bot accepts:
 /tv indicator add "Relative Strength Index"
 ```
 
+Recommended local setup for secrets:
+
+```bash
+copy .env.telegram.example .env.telegram
+```
+
+Then fill these values locally and keep that file untracked:
+
+```bash
+TELEGRAM_BOT_TOKEN=replace_me
+TELEGRAM_ADMIN_ID=replace_me
+TV_CDP_HOST=localhost
+TV_CDP_PORT=9222
+```
+
 Automatic signal monitoring is also supported. With `TELEGRAM_SIGNAL_MONITOR_ENABLED=true`, the bot polls the current chart and sends Telegram alerts when:
 
 - `TuanAnh_Gann_Final` prints a new `GT` label
@@ -182,8 +215,8 @@ npm run telegram
 ### 1. Install
 
 ```bash
-git clone https://github.com/tradesdontlie/tradingview-mcp.git
-cd tradingview-mcp
+git clone https://github.com/vinhcotam/my-tradingview-mcp.git
+cd my-tradingview-mcp
 npm install
 ```
 
