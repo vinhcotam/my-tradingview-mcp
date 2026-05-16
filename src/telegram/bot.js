@@ -2,6 +2,7 @@ import { loadTelegramConfig } from './config.js';
 import { parseTelegramCommand, isAuthorizedUser, getHelpText } from './command.js';
 import { runTvCommand, isReadableFile, formatTvResult, screenshotCaption } from './tv.js';
 import { TelegramSignalMonitor, formatMonitorStatus, formatSignalAlert } from './monitor.js';
+import { TelegramRedNewsMonitor, formatRedNewsStatus } from './news.js';
 import { localizeErrorMessage } from './text.js';
 import { captureScreenshot } from '../core/capture.js';
 import { getVisibleRange, setVisibleRange } from '../core/chart.js';
@@ -13,7 +14,7 @@ import {
   sendSignalNotification,
 } from './api.js';
 
-async function handleMessage(config, message, monitor) {
+async function handleMessage(config, message, monitor, redNewsMonitor) {
   const chatId = message.chat.id;
   if (!isAuthorizedUser({ message }, config.adminId)) {
     await sendMessage(config.token, chatId, 'Bạn không có quyền sử dụng bot này.');
@@ -57,6 +58,34 @@ async function handleMessage(config, message, monitor) {
     }
   }
 
+  if (parsed.type === 'news') {
+    if (parsed.action === 'status') {
+      await sendMessage(config.token, chatId, formatRedNewsStatus(redNewsMonitor.getStatus()));
+      return;
+    }
+    if (parsed.action === 'on') {
+      config.redNews.enabled = true;
+      await redNewsMonitor.start();
+      await sendMessage(config.token, chatId, formatRedNewsStatus(redNewsMonitor.getStatus()));
+      return;
+    }
+    if (parsed.action === 'off') {
+      config.redNews.enabled = false;
+      await redNewsMonitor.stop();
+      await sendMessage(config.token, chatId, formatRedNewsStatus(redNewsMonitor.getStatus()));
+      return;
+    }
+    if (parsed.action === 'reset') {
+      redNewsMonitor.reset('telegram-command');
+      await sendMessage(config.token, chatId, formatRedNewsStatus(redNewsMonitor.getStatus()));
+      return;
+    }
+    if (parsed.action === 'today') {
+      await redNewsMonitor.sendTodaySummary({ force: true });
+      return;
+    }
+  }
+
   const result = await runTvCommand({ args: parsed.args, stdin: parsed.stdin });
   if (result?.success && typeof result.file_path === 'string' && await isReadableFile(result.file_path)) {
     await sendPhoto(config.token, chatId, result.file_path, screenshotCaption(parsed.args, result));
@@ -85,6 +114,10 @@ async function main() {
       setVisibleRangeImpl: setVisibleRange,
     }),
   });
+  const redNewsMonitor = new TelegramRedNewsMonitor({
+    config,
+    sendMessage,
+  });
 
   process.stderr.write('Telegram bot started.\n');
   process.stderr.write('Only the configured admin user can execute commands.\n');
@@ -94,6 +127,9 @@ async function main() {
   if (config.signalMonitor.enabled) {
     await monitor.start();
   }
+  if (config.redNews.enabled) {
+    await redNewsMonitor.start();
+  }
 
   for (;;) {
     try {
@@ -101,7 +137,7 @@ async function main() {
       for (const update of updates) {
         offset = update.update_id + 1;
         if (update.message?.text) {
-          await handleMessage(config, update.message, monitor);
+          await handleMessage(config, update.message, monitor, redNewsMonitor);
         }
       }
     } catch (err) {

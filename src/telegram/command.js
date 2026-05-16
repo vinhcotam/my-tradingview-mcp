@@ -91,6 +91,13 @@ export function parseTelegramCommand(text) {
     }
     return { type: 'help', message: HELP_TEXT };
   }
+  if (command === 'news') {
+    const action = (rest || 'today').toLowerCase();
+    if (['today', 'status', 'on', 'off', 'reset'].includes(action)) {
+      return { type: 'news', action };
+    }
+    return { type: 'help', message: HELP_TEXT };
+  }
   if (command === 'tv') {
     return parseTvPayload(rest);
   }

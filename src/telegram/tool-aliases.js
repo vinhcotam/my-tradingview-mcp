@@ -294,6 +294,7 @@ export function buildToolAliasHelpText() {
     '/launch - mở TradingView với CDP',
     '/screenshot [full|chart|strategy_tester] - chụp ảnh chart',
     '/monitor [status|on|off|reset] - điều khiển bộ theo dõi tín hiệu',
+    '/news [today|status|on|off|reset] - cảnh báo tin đỏ trong ngày',
     '/tv <command> - chạy trực tiếp lệnh CLI hiện có',
     '',
     'Bot cũng hỗ trợ alias theo đúng tên tool trong CLAUDE.md:',
@@ -312,6 +313,8 @@ export function buildToolAliasHelpText() {
   lines.push('/chart_set_symbol OANDA:XAUUSD');
   lines.push('/alert_create --price 4675 --condition crossing --message "Test"');
   lines.push('/capture_screenshot chart');
+  lines.push('/news today');
+  lines.push('/news status');
   lines.push('/tv values');
 
   return lines.join('\n');

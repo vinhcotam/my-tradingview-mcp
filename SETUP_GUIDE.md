@@ -12,6 +12,8 @@ The default focus mode is `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_FOCUS=latest`, whi
 
 Money Printer `BUY/SELL` alerts are confirmed only after the signal candle closes. This avoids intrabar flicker alerts that can disappear before the bar is complete.
 
+For red-news warnings, enable `TELEGRAM_RED_NEWS_ENABLED=true`. The bot will read TradingView's economic calendar feed, send a summary of remaining high-impact events for the local day, and remind before each event. By default it infers relevant countries from the current chart symbol; you can override that with `TELEGRAM_RED_NEWS_COUNTRIES=US,EU`.
+
 ## Step 1: Clone and Install
 
 ```bash

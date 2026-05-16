@@ -19,6 +19,14 @@ import {
   sendSignalNotification,
   truncateTelegramCaption,
 } from '../src/telegram/api.js';
+import {
+  buildEconomicCalendarUrl,
+  filterHighImpactEvents,
+  formatRedNewsStatus,
+  formatRedNewsSummary,
+  resolveRelevantCountryCodes,
+  shouldSendRedNewsReminder,
+} from '../src/telegram/news.js';
 
 const TEST_ADMIN_ID = '123456789';
 
@@ -58,10 +66,16 @@ describe('telegram command parsing', () => {
     assert.deepEqual(parsed, { type: 'monitor', action: 'reset' });
   });
 
+  it('parses /news command', () => {
+    const parsed = parseTelegramCommand('/news status');
+    assert.deepEqual(parsed, { type: 'news', action: 'status' });
+  });
+
   it('returns Vietnamese help text', () => {
     const helpText = getHelpText();
     assert.ok(helpText.includes('Bot Telegram cho TradingView'));
     assert.ok(helpText.includes('/status - kiểm tra kết nối CDP'));
+    assert.ok(helpText.includes('/news [today|status|on|off|reset] - cảnh báo tin đỏ trong ngày'));
     assert.ok(helpText.includes('/chart_get_state'));
     assert.ok(helpText.includes('/alert_create --price 4675 --condition crossing --message "Test"'));
     assert.ok(helpText.includes('Ví dụ nhanh:'));
@@ -108,6 +122,13 @@ describe('telegram config', () => {
       TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_FOCUS: 'latest',
       TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_WIDTH_RATIO: '0.35',
       TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_CROP_RATIO: '0.7',
+      TELEGRAM_RED_NEWS_ENABLED: 'true',
+      TELEGRAM_RED_NEWS_DAILY_SUMMARY_ENABLED: 'false',
+      TELEGRAM_RED_NEWS_POLL_INTERVAL_MS: '60000',
+      TELEGRAM_RED_NEWS_FETCH_INTERVAL_MS: '300000',
+      TELEGRAM_RED_NEWS_LEAD_MINUTES: '45',
+      TELEGRAM_RED_NEWS_MIN_IMPORTANCE: '3',
+      TELEGRAM_RED_NEWS_COUNTRIES: 'US,EU',
     });
     assert.equal(cfg.token, 'token');
     assert.equal(cfg.adminId, TEST_ADMIN_ID);
@@ -122,6 +143,13 @@ describe('telegram config', () => {
     assert.equal(cfg.signalMonitor.screenshot.latestWidthRatio, 0.35);
     assert.equal(cfg.signalMonitor.screenshot.latestCropRatio, 0.7);
     assert.equal(cfg.signalMonitor.detectors[0].studyFilter, 'TuanAnh_Gann_Final');
+    assert.equal(cfg.redNews.enabled, true);
+    assert.equal(cfg.redNews.dailySummaryEnabled, false);
+    assert.equal(cfg.redNews.pollIntervalMs, 60000);
+    assert.equal(cfg.redNews.fetchIntervalMs, 300000);
+    assert.equal(cfg.redNews.leadMinutes, 45);
+    assert.equal(cfg.redNews.minImportance, 3);
+    assert.deepEqual(cfg.redNews.countryCodes, ['US', 'EU']);
   });
 
   it('rejects missing token', () => {
@@ -301,6 +329,94 @@ describe('signal monitor helpers', () => {
     assert.equal(isLabelSignalNewerThanCursor({ x: 428 }, cursorX), false);
     assert.equal(isLabelSignalNewerThanCursor({ x: 439 }, cursorX), false);
     assert.equal(isLabelSignalNewerThanCursor({ x: 440 }, cursorX), true);
+  });
+});
+
+describe('red news helpers', () => {
+  it('infers relevant countries from chart symbol', () => {
+    assert.deepEqual(resolveRelevantCountryCodes({ chartSymbol: 'OANDA:XAUUSD' }), ['US']);
+    assert.deepEqual(resolveRelevantCountryCodes({ chartSymbol: 'OANDA:EURUSD' }), ['EU', 'US']);
+    assert.deepEqual(resolveRelevantCountryCodes({ chartSymbol: 'BINANCE:BTCUSDT', explicitCountryCodes: ['GB', 'US'] }), ['GB', 'US']);
+  });
+
+  it('builds a TradingView economic calendar URL', () => {
+    const url = buildEconomicCalendarUrl({
+      fromDate: new Date('2026-05-16T00:00:00.000Z'),
+      toDate: new Date('2026-05-17T00:00:00.000Z'),
+      countryCodes: ['US', 'EU'],
+    });
+
+    assert.ok(url.startsWith('https://economic-calendar.tradingview.com/events?'));
+    assert.ok(url.includes('countries=US%2CEU'));
+  });
+
+  it('filters only high-impact events', () => {
+    const events = filterHighImpactEvents([
+      { id: '2', importance: 2, date: '2026-05-16T13:00:00.000Z' },
+      { id: '3', importance: 3, date: '2026-05-16T14:00:00.000Z' },
+      { id: '1', importance: 3, date: '2026-05-16T12:00:00.000Z' },
+    ], 3);
+
+    assert.deepEqual(events.map((event) => event.id), ['1', '3']);
+  });
+
+  it('detects whether a red-news reminder should be sent', () => {
+    const reminded = new Set();
+    const event = {
+      id: 'evt-1',
+      country: 'US',
+      title: 'CPI',
+      date: '2026-05-16T10:30:00.000Z',
+    };
+
+    assert.equal(shouldSendRedNewsReminder({
+      event,
+      now: new Date('2026-05-16T10:05:00.000Z'),
+      remindedFingerprints: reminded,
+      leadMinutes: 30,
+    }), true);
+
+    reminded.add('evt-1|US|CPI|2026-05-16T10:30:00.000Z');
+    assert.equal(shouldSendRedNewsReminder({
+      event,
+      now: new Date('2026-05-16T10:05:00.000Z'),
+      remindedFingerprints: reminded,
+      leadMinutes: 30,
+    }), false);
+  });
+
+  it('formats red-news summary and status in Vietnamese', () => {
+    const summary = formatRedNewsSummary({
+      chart: { chart_symbol: 'OANDA:XAUUSD', chart_resolution: '5' },
+      countryCodes: ['US'],
+      events: [
+        {
+          id: 'evt-1',
+          country: 'US',
+          title: 'Non Farm Payrolls',
+          date: '2026-05-16T12:30:00.000Z',
+        },
+      ],
+      now: new Date('2026-05-16T10:00:00.000Z'),
+    });
+
+    const status = formatRedNewsStatus({
+      enabled: true,
+      running: true,
+      cdpConnected: true,
+      chartSymbol: 'OANDA:XAUUSD',
+      chartResolution: '5m',
+      countryCodes: ['US'],
+      cachedEventCount: 1,
+      lastFetchAt: new Date('2026-05-16T10:00:00.000Z'),
+      lastError: null,
+    });
+
+    assert.ok(summary.includes('Cảnh báo tin đỏ trong ngày'));
+    assert.ok(summary.includes('Non Farm Payrolls'));
+    assert.ok(summary.includes('Hoa Kỳ (US)'));
+    assert.ok(status.includes('Bộ theo dõi tin đỏ'));
+    assert.ok(status.includes('Khu vực theo dõi: Hoa Kỳ (US)'));
   });
 });
 

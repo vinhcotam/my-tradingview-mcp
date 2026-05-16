@@ -8,6 +8,7 @@ This fork adds a practical runtime layer on top of the original TradingView MCP 
 
 - **Admin-only Telegram bot** for remote control of the local `tv` CLI
 - **Automatic signal monitoring** for `TuanAnh_Gann_Final` (`GT`) and `Money Printer` (`BUY` / `SELL`)
+- **Red-news monitoring** using TradingView's economic calendar feed with daily summaries and pre-event reminders
 - **Alert screenshots** attached directly in Telegram
 - **Zoomed alert images** that focus on the newest candles instead of sending the full chart every time
 - **Docker packaging** for the Telegram bot and MCP runtime
@@ -150,6 +151,8 @@ The bot accepts:
 /quote
 /screenshot chart
 /monitor status
+/news status
+/news today
 /monitor reset
 /tv symbol BINANCE:BTCUSDT
 /tv timeframe 15
@@ -199,6 +202,33 @@ Useful commands:
 `/monitor reset` is useful after you change symbol, timeframe, or manually reload indicators. It clears the baseline and re-arms the monitor without replaying old signals.
 
 Money Printer alerts are intentionally delayed until the signal bar has closed. This avoids intrabar `BUY=1` or `SELL=1` flickers that can disappear before the candle finishes.
+
+Red-news monitoring is also supported. With `TELEGRAM_RED_NEWS_ENABLED=true`, the bot uses TradingView's economic calendar feed to:
+
+- send a one-time summary of remaining high-impact events for the local day
+- send a reminder before each red-news event, default `30` minutes ahead
+- infer relevant countries from the current chart symbol by default, for example `XAUUSD -> US`, `EURUSD -> EU,US`
+
+Useful red-news settings:
+
+- `TELEGRAM_RED_NEWS_DAILY_SUMMARY_ENABLED=true|false`
+- `TELEGRAM_RED_NEWS_POLL_INTERVAL_MS=60000`
+- `TELEGRAM_RED_NEWS_FETCH_INTERVAL_MS=300000`
+- `TELEGRAM_RED_NEWS_LEAD_MINUTES=30`
+- `TELEGRAM_RED_NEWS_MIN_IMPORTANCE=3`
+- `TELEGRAM_RED_NEWS_COUNTRIES=US,EU`
+
+Useful commands:
+
+```text
+/news today
+/news status
+/news on
+/news off
+/news reset
+```
+
+Leave `TELEGRAM_RED_NEWS_COUNTRIES` blank to let the bot infer countries from the current chart. Set it explicitly if you want to force a custom watchlist of economies.
 
 If you run it without Docker:
 

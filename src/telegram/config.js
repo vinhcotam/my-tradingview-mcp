@@ -48,6 +48,26 @@ export function loadTelegramConfig(env = process.env) {
     throw new Error(`Invalid TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_CROP_RATIO: ${env.TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_CROP_RATIO}`);
   }
 
+  const redNewsEnabled = parseBoolean(env.TELEGRAM_RED_NEWS_ENABLED, false);
+  const redNewsDailySummaryEnabled = parseBoolean(env.TELEGRAM_RED_NEWS_DAILY_SUMMARY_ENABLED, true);
+  const redNewsPollIntervalMs = Number(env.TELEGRAM_RED_NEWS_POLL_INTERVAL_MS || '60000');
+  const redNewsFetchIntervalMs = Number(env.TELEGRAM_RED_NEWS_FETCH_INTERVAL_MS || '300000');
+  const redNewsLeadMinutes = Number(env.TELEGRAM_RED_NEWS_LEAD_MINUTES || '30');
+  const redNewsMinImportance = Number(env.TELEGRAM_RED_NEWS_MIN_IMPORTANCE || '3');
+  const redNewsCountryCodes = splitCountryCsv(env.TELEGRAM_RED_NEWS_COUNTRIES || '');
+  if (!Number.isFinite(redNewsPollIntervalMs) || redNewsPollIntervalMs < 10000) {
+    throw new Error(`Invalid TELEGRAM_RED_NEWS_POLL_INTERVAL_MS: ${env.TELEGRAM_RED_NEWS_POLL_INTERVAL_MS}`);
+  }
+  if (!Number.isFinite(redNewsFetchIntervalMs) || redNewsFetchIntervalMs < 30000) {
+    throw new Error(`Invalid TELEGRAM_RED_NEWS_FETCH_INTERVAL_MS: ${env.TELEGRAM_RED_NEWS_FETCH_INTERVAL_MS}`);
+  }
+  if (!Number.isFinite(redNewsLeadMinutes) || redNewsLeadMinutes < 1 || redNewsLeadMinutes > 240) {
+    throw new Error(`Invalid TELEGRAM_RED_NEWS_LEAD_MINUTES: ${env.TELEGRAM_RED_NEWS_LEAD_MINUTES}`);
+  }
+  if (!Number.isFinite(redNewsMinImportance) || redNewsMinImportance < 1 || redNewsMinImportance > 3) {
+    throw new Error(`Invalid TELEGRAM_RED_NEWS_MIN_IMPORTANCE: ${env.TELEGRAM_RED_NEWS_MIN_IMPORTANCE}`);
+  }
+
   return {
     token,
     adminId: String(adminId),
@@ -83,6 +103,15 @@ export function loadTelegramConfig(env = process.env) {
         },
       ],
     },
+    redNews: {
+      enabled: redNewsEnabled,
+      dailySummaryEnabled: redNewsDailySummaryEnabled,
+      pollIntervalMs: redNewsPollIntervalMs,
+      fetchIntervalMs: redNewsFetchIntervalMs,
+      leadMinutes: redNewsLeadMinutes,
+      minImportance: redNewsMinImportance,
+      countryCodes: redNewsCountryCodes,
+    },
   };
 }
 
@@ -95,6 +124,13 @@ function parseBoolean(value, fallback) {
 }
 
 function splitCsv(value) {
+  return String(value)
+    .split(',')
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function splitCountryCsv(value) {
   return String(value)
     .split(',')
     .map((item) => item.trim().toUpperCase())
