@@ -5,6 +5,22 @@ import { getClient, getTargetInfo, evaluate } from '../connection.js';
 import { existsSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 
+export function getWindowsAppxInfo({ execSyncFn = execSync, existsSyncFn = existsSync } = {}) {
+  const ps = "$pkg = Get-AppxPackage *TradingView* | Sort-Object Version -Descending | Select-Object -First 1; if ($pkg -and $pkg.InstallLocation) { [xml]$manifest = Get-Content (Join-Path $pkg.InstallLocation 'AppxManifest.xml'); $app = $manifest.Package.Applications.Application | Select-Object -First 1; [pscustomobject]@{ binaryPath = Join-Path $pkg.InstallLocation 'TradingView.exe'; appId = if ($app) { '{0}!{1}' -f $pkg.PackageFamilyName, $app.Id } else { $null } } | ConvertTo-Json -Compress }";
+  try {
+    const raw = execSyncFn(`powershell -NoProfile -Command "${ps}"`, { timeout: 5000 }).toString().trim();
+    if (!raw) return null;
+    const info = JSON.parse(raw);
+    return info?.binaryPath && existsSyncFn(info.binaryPath) ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+export function findWindowsAppxBinary({ execSyncFn = execSync, existsSyncFn = existsSync } = {}) {
+  return getWindowsAppxInfo({ execSyncFn, existsSyncFn })?.binaryPath ?? null;
+}
+
 export async function healthCheck() {
   await getClient();
   const target = await getTargetInfo();
@@ -163,6 +179,7 @@ export async function launch({ port, kill_existing } = {}) {
   const cdpPort = port || 9222;
   const killFirst = kill_existing !== false;
   const platform = process.platform;
+  const appxInfo = platform === 'win32' ? getWindowsAppxInfo() : null;
 
   const pathMap = {
     darwin: [
@@ -173,6 +190,7 @@ export async function launch({ port, kill_existing } = {}) {
       `${process.env.LOCALAPPDATA}\\TradingView\\TradingView.exe`,
       `${process.env.PROGRAMFILES}\\TradingView\\TradingView.exe`,
       `${process.env['PROGRAMFILES(X86)']}\\TradingView\\TradingView.exe`,
+      `${process.env.PROGRAMFILES}\\WindowsApps\\TradingView*\\TradingView.exe`,
     ],
     linux: [
       '/opt/TradingView/tradingview',
@@ -197,6 +215,10 @@ export async function launch({ port, kill_existing } = {}) {
     } catch { /* ignore */ }
   }
 
+  if (!tvPath && platform === 'win32') {
+    tvPath = appxInfo?.binaryPath ?? null;
+  }
+
   if (!tvPath && platform === 'darwin') {
     try {
       const found = execSync('mdfind "kMDItemFSName == TradingView.app" | head -1', { timeout: 5000 }).toString().trim();
@@ -219,7 +241,13 @@ export async function launch({ port, kill_existing } = {}) {
     } catch { /* may not be running */ }
   }
 
-  const child = spawn(tvPath, [`--remote-debugging-port=${cdpPort}`], { detached: true, stdio: 'ignore' });
+  const child = platform === 'win32' && appxInfo?.appId && tvPath === appxInfo.binaryPath
+    ? spawn('explorer.exe', [`shell:AppsFolder\\${appxInfo.appId}`], {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, ELECTRON_EXTRA_LAUNCH_ARGS: `--remote-debugging-port=${cdpPort}` },
+    })
+    : spawn(tvPath, [`--remote-debugging-port=${cdpPort}`], { detached: true, stdio: 'ignore' });
   child.unref();
 
   for (let i = 0; i < 15; i++) {
@@ -239,6 +267,7 @@ export async function launch({ port, kill_existing } = {}) {
           success: true, platform, binary: tvPath, pid: child.pid,
           cdp_port: cdpPort, cdp_url: `http://localhost:${cdpPort}`,
           browser: info.Browser, user_agent: info['User-Agent'],
+          launch_mode: platform === 'win32' && appxInfo?.appId && tvPath === appxInfo.binaryPath ? 'windows-appx' : 'direct',
         };
       }
     } catch { /* retry */ }
@@ -246,6 +275,9 @@ export async function launch({ port, kill_existing } = {}) {
 
   return {
     success: true, platform, binary: tvPath, pid: child.pid, cdp_port: cdpPort, cdp_ready: false,
-    warning: 'TradingView launched but CDP not responding yet. It may still be loading. Try tv_health_check in a few seconds.',
+    install_type: platform === 'win32' && appxInfo?.binaryPath === tvPath ? 'windows-msix' : 'standard',
+    warning: platform === 'win32' && appxInfo?.binaryPath === tvPath
+      ? 'TradingView MSIX launched, but CDP never came up on the requested port. Recent Windows MSIX builds may ignore or strip --remote-debugging-port, so Codex cannot attach until TradingView exposes CDP again.'
+      : 'TradingView launched but CDP not responding yet. It may still be loading. Try tv_health_check in a few seconds.',
   };
 }

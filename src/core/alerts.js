@@ -6,8 +6,14 @@ import { evaluate, evaluateAsync, getClient, safeString } from '../connection.js
 export async function create({ condition, price, message }) {
   const opened = await evaluate(`
     (function() {
-      var btn = document.querySelector('[aria-label="Create Alert"]')
-        || document.querySelector('[data-name="alerts"]');
+      var btn = document.querySelector('[aria-label="Create alert"]')
+        || document.querySelector('button[aria-label="Create alert"]')
+        || Array.from(document.querySelectorAll('button,[role="button"]')).find(function(el) {
+          if (el.offsetParent === null) return false;
+          var text = (el.textContent || '').trim();
+          var aria = el.getAttribute('aria-label') || '';
+          return text === 'Alert' || /create alert/i.test(aria);
+        });
       if (btn) { btn.click(); return true; }
       return false;
     })()
@@ -21,23 +27,54 @@ export async function create({ condition, price, message }) {
 
   await new Promise(r => setTimeout(r, 1000));
 
+  const normalizedCondition = String(condition || 'crossing').toLowerCase();
+  const conditionSet = await evaluate(`
+    (function() {
+      var target = ${safeString(normalizedCondition)};
+      if (!target || target === 'crossing') return true;
+      var trigger = Array.from(document.querySelectorAll('button,[role="button"]')).find(function(el) {
+        if (el.offsetParent === null) return false;
+        var text = (el.textContent || '').trim();
+        return /cross|greater|less/i.test(text);
+      });
+      if (!trigger) return false;
+      trigger.click();
+      var desired = target.replace(/_/g, ' ');
+      var items = Array.from(document.querySelectorAll('[role="menuitem"], button, [class*="item"]')).filter(function(el) {
+        return el.offsetParent !== null;
+      });
+      var match = items.find(function(el) {
+        var text = (el.textContent || '').trim().toLowerCase();
+        return text === desired || text.indexOf(desired) !== -1;
+      });
+      if (!match) return false;
+      match.click();
+      return true;
+    })()
+  `);
+
   const priceSet = await evaluate(`
     (function() {
-      var inputs = document.querySelectorAll('[class*="alert"] input[type="text"], [class*="alert"] input[type="number"]');
-      for (var i = 0; i < inputs.length; i++) {
-        var label = inputs[i].closest('[class*="row"]')?.querySelector('[class*="label"]');
-        if (label && /value|price/i.test(label.textContent)) {
-          var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-          nativeSet.call(inputs[i], ${safeString(String(price))});
-          inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-          inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
+      function rowText(el) {
+        var node = el;
+        for (var i = 0; i < 5 && node; i++, node = node.parentElement) {
+          var text = (node.textContent || '').trim();
+          if (text) return text;
         }
+        return '';
       }
-      if (inputs.length > 0) {
+
+      var inputs = Array.from(document.querySelectorAll('input[type="text"], input[type="number"]')).filter(function(el) {
+        return el.offsetParent !== null;
+      });
+      var target = inputs.find(function(el) { return /value|price/i.test(rowText(el)); }) || inputs[0];
+      if (target) {
         var nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-        nativeSet.call(inputs[0], ${safeString(String(price))});
-        inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+        nativeSet.call(target, ${safeString(String(price))});
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
         return true;
       }
       return false;
@@ -47,12 +84,17 @@ export async function create({ condition, price, message }) {
   if (message) {
     await evaluate(`
       (function() {
-        var textarea = document.querySelector('[class*="alert"] textarea')
-          || document.querySelector('textarea[placeholder*="message"]');
+        var textarea = Array.from(document.querySelectorAll('textarea')).find(function(el) {
+          if (el.offsetParent === null) return false;
+          var aria = el.getAttribute('aria-label') || '';
+          var placeholder = el.getAttribute('placeholder') || '';
+          return !/editor content/i.test(aria) && /message/i.test(aria + ' ' + placeholder + ' ' + (el.closest('[class*="row"], [class*="field"]')?.textContent || ''));
+        });
         if (textarea) {
           var nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
           nativeSet.call(textarea, ${JSON.stringify(message)});
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          textarea.dispatchEvent(new Event('change', { bubbles: true }));
         }
       })()
     `);
@@ -61,7 +103,9 @@ export async function create({ condition, price, message }) {
   await new Promise(r => setTimeout(r, 500));
   const created = await evaluate(`
     (function() {
-      var btns = document.querySelectorAll('button[data-name="submit"], button');
+      var btns = Array.from(document.querySelectorAll('button[data-name="submit"], button,[role="button"]')).filter(function(el) {
+        return el.offsetParent !== null;
+      });
       for (var i = 0; i < btns.length; i++) {
         if (/^create$/i.test(btns[i].textContent.trim())) { btns[i].click(); return true; }
       }
@@ -69,7 +113,15 @@ export async function create({ condition, price, message }) {
     })()
   `);
 
-  return { success: !!created, price, condition, message: message || '(none)', price_set: !!priceSet, source: 'dom_fallback' };
+  return {
+    success: !!created,
+    price,
+    condition,
+    message: message || '(none)',
+    condition_set: !!conditionSet,
+    price_set: !!priceSet,
+    source: 'dom_fallback',
+  };
 }
 
 export async function list() {

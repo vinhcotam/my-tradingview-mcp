@@ -1,0 +1,17 @@
+services:
+  tradingview-telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradingview-mcp:latest
+    restart: unless-stopped
+    env_file:
+      - .env.telegram
+    environment:
+      APP_MODE: telegram
+      TV_CDP_HOST: ${TV_CDP_HOST:-host.docker.internal}
+      TV_CDP_PORT: ${TV_CDP_PORT:-9222}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./screenshots:/app/screenshots

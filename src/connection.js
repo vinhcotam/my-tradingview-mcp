@@ -2,10 +2,18 @@ import CDP from 'chrome-remote-interface';
 
 let client = null;
 let targetInfo = null;
-const CDP_HOST = 'localhost';
-const CDP_PORT = 9222;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 500;
+
+export function getConnectionConfig(env = process.env) {
+  const host = env.TV_CDP_HOST || env.CDP_HOST || 'localhost';
+  const rawPort = env.TV_CDP_PORT || env.CDP_PORT || '9222';
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error(`Invalid CDP port: ${rawPort}`);
+  }
+  return { host, port };
+}
 
 // Known direct API paths discovered via live probing (see PROBE_RESULTS.md)
 const KNOWN_PATHS = {
@@ -62,15 +70,16 @@ export async function getClient() {
 }
 
 export async function connect() {
+  const { host, port } = getConnectionConfig();
   let lastError;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const target = await findChartTarget();
+      const target = await findChartTarget({ host, port });
       if (!target) {
         throw new Error('No TradingView chart target found. Is TradingView open with a chart?');
       }
       targetInfo = target;
-      client = await CDP({ host: CDP_HOST, port: CDP_PORT, target: target.id });
+      client = await CDP({ host, port, target: target.id });
 
       // Enable required domains
       await client.Runtime.enable();
@@ -87,8 +96,8 @@ export async function connect() {
   throw new Error(`CDP connection failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
 }
 
-async function findChartTarget() {
-  const resp = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/list`);
+async function findChartTarget({ host, port }) {
+  const resp = await fetch(`http://${host}:${port}/json/list`);
   const targets = await resp.json();
   // Prefer targets with tradingview.com/chart in the URL
   return targets.find(t => t.type === 'page' && /tradingview\.com\/chart/i.test(t.url))

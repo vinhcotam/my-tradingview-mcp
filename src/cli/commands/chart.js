@@ -45,9 +45,12 @@ register('info', {
 
 register('search', {
   description: 'Search for symbols by name or keyword',
+  options: {
+    type: { type: 'string', short: 't', description: 'Optional filter: stock, futures, crypto, forex, index' },
+  },
   handler: (opts, positionals) => {
     if (!positionals[0]) throw new Error('Query required. Usage: tv search AAPL');
-    return core.symbolSearch({ query: positionals.join(' ') });
+    return core.symbolSearch({ query: positionals.join(' '), type: opts.type });
   },
 });
 

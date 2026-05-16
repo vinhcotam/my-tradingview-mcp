@@ -76,6 +76,107 @@ Paste this into Claude Code and it will handle the rest:
 
 Or follow the manual steps below.
 
+## Install with Codex
+
+Add this repo as an MCP server in Codex:
+
+```bash
+codex mcp add tradingview -- node /path/to/tradingview-mcp/src/server.js
+```
+
+Verify it is registered:
+
+```bash
+codex mcp list
+codex mcp get tradingview
+```
+
+If your current Codex session was already open, start a new session in this project so the TradingView tools load.
+
+## Docker
+
+Build the image:
+
+```bash
+npm run docker:build
+```
+
+Or tag a custom image:
+
+```bash
+node scripts/docker-build.js myorg/tradingview-mcp:latest
+```
+
+The container is designed to connect to a TradingView CDP endpoint that is already running on the host machine. Set `TV_CDP_HOST` and `TV_CDP_PORT` as needed. In Docker Desktop on Windows/macOS, `host.docker.internal:9222` is the default.
+
+> [!IMPORTANT]
+> A Docker container cannot reliably launch the host TradingView desktop GUI for you. Start TradingView on the host first, then let the container attach to its CDP port.
+
+### Telegram Bot
+
+The repo includes an admin-only Telegram bot that proxies commands to the existing `tv` CLI.
+
+1. Copy `.env.telegram.example` to `.env.telegram`
+2. Fill in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_ID`
+3. Make sure TradingView is already listening on CDP from the host machine
+4. Start the bot:
+
+```bash
+docker compose -f docker-compose.telegram.yml up --build -d
+```
+
+The bot accepts:
+
+```text
+/status
+/quote
+/screenshot chart
+/monitor status
+/monitor reset
+/tv symbol BINANCE:BTCUSDT
+/tv timeframe 15
+/tv indicator add "Relative Strength Index"
+```
+
+Automatic signal monitoring is also supported. With `TELEGRAM_SIGNAL_MONITOR_ENABLED=true`, the bot polls the current chart and sends Telegram alerts when:
+
+- `TuanAnh_Gann_Final` prints a new `GT` label
+- `Money Printer` keeps a `BUY` or `SELL` signal active until the bar closes, then confirms it on the next bar
+
+Signal alerts include a fresh chart screenshot by default. You can control that behavior with:
+
+- `TELEGRAM_SIGNAL_MONITOR_SEND_CHART=true|false`
+- `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_REGION=chart|full|strategy_tester`
+- `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_METHOD=cdp|api`
+- `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_FOCUS=latest|none`
+- `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_WIDTH_RATIO=0.2..1.0`
+- `TELEGRAM_SIGNAL_MONITOR_SCREENSHOT_LATEST_CROP_RATIO=0.2..1.0`
+
+With `SCREENSHOT_FOCUS=latest`, the bot temporarily narrows the visible range to the newest candles, crops slightly toward the newest bars for a tighter view, captures the image, then restores the previous chart range.
+
+Useful commands:
+
+```text
+/monitor status
+/monitor on
+/monitor off
+/monitor reset
+```
+
+`/monitor reset` is useful after you change symbol, timeframe, or manually reload indicators. It clears the baseline and re-arms the monitor without replaying old signals.
+
+Money Printer alerts are intentionally delayed until the signal bar has closed. This avoids intrabar `BUY=1` or `SELL=1` flickers that can disappear before the candle finishes.
+
+If you run it without Docker:
+
+```bash
+set TELEGRAM_BOT_TOKEN=...
+set TELEGRAM_ADMIN_ID=...
+set TV_CDP_HOST=localhost
+set TV_CDP_PORT=9222
+npm run telegram
+```
+
 ## Quick Start
 
 ### 1. Install
@@ -99,6 +200,15 @@ TradingView Desktop must be running with Chrome DevTools Protocol enabled on por
 ```bash
 scripts\launch_tv_debug.bat
 ```
+
+> [!WARNING]
+> On Windows 11, the current TradingView MSIX/Desktop package may launch successfully but still never expose CDP on `localhost:9222`, even when `--remote-debugging-port=9222` is present. If `tv_health_check` keeps reporting `cdp_connected: false`, the limitation is in the current TradingView Windows build rather than this repo.
+
+Browser fallback on Windows:
+```bash
+scripts\launch_tv_debug_edge.bat
+```
+This opens `https://www.tradingview.com/chart/` in Edge or Chrome with CDP enabled on port `9222`. The MCP/CLI tools can attach to that page as a workaround when the Desktop MSIX build refuses to expose CDP.
 
 **Linux:**
 ```bash

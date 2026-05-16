@@ -392,10 +392,27 @@ export async function getPineLabels({ study_filter, max_labels, verbose } = {}) 
       const v = item.raw;
       const text = v.t || '';
       const price = v.y != null ? Math.round(v.y * 100) / 100 : null;
-      if (verbose) return { id: item.id, text, price, x: v.x, yloc: v.yl, size: v.sz, textColor: v.tci, color: v.ci };
-      return { text, price };
+      return {
+        id: item.id,
+        text,
+        price,
+        x: v.x,
+        yloc: v.yl,
+        size: v.sz,
+        textColor: v.tci,
+        color: v.ci,
+      };
     }).filter(l => l.text || l.price != null);
+    labels.sort((a, b) => {
+      const ax = Number.isFinite(a.x) ? a.x : -Infinity;
+      const bx = Number.isFinite(b.x) ? b.x : -Infinity;
+      if (ax !== bx) return ax - bx;
+      return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    });
     if (labels.length > limit) labels = labels.slice(-limit);
+    if (!verbose) {
+      labels = labels.map((label) => ({ text: label.text, price: label.price }));
+    }
     return { name: s.name, total_labels: s.count, showing: labels.length, labels };
   });
   return { success: true, study_count: studies.length, studies };

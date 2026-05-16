@@ -6,9 +6,11 @@ register('screenshot', {
   options: {
     region: { type: 'string', short: 'r', description: 'Region: full, chart, strategy_tester' },
     output: { type: 'string', short: 'o', description: 'Custom filename (without .png)' },
+    method: { type: 'string', short: 'm', description: 'Capture method: cdp or api' },
   },
   handler: (opts) => core.captureScreenshot({
     region: opts.region,
     filename: opts.output,
+    method: opts.method,
   }),
 });

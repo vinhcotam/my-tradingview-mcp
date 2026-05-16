@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(dirname(dirname(__dirname)), 'screenshots');
 
-export async function captureScreenshot({ region, filename, method } = {}) {
+export async function captureScreenshot({ region, filename, method, focus } = {}) {
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -32,6 +32,9 @@ export async function captureScreenshot({ region, filename, method } = {}) {
   const client = await getClient();
   let clip = undefined;
 
+  const focusMode = focus?.mode;
+  const focusLatestWidthRatio = focus?.latestWidthRatio;
+
   if (region === 'chart') {
     const bounds = await evaluate(`
       (function() {
@@ -43,7 +46,13 @@ export async function captureScreenshot({ region, filename, method } = {}) {
         return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
       })()
     `);
-    if (bounds) clip = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, scale: 1 };
+    if (bounds) {
+      if (focusMode === 'latest') {
+        clip = buildLatestFocusClip(bounds, focusLatestWidthRatio);
+      } else {
+        clip = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, scale: 1 };
+      }
+    }
   } else if (region === 'strategy_tester') {
     const bounds = await evaluate(`
       (function() {
@@ -67,4 +76,25 @@ export async function captureScreenshot({ region, filename, method } = {}) {
     success: true, method: 'cdp', file_path: filePath, region,
     size_bytes: Buffer.from(data, 'base64').length,
   };
+}
+
+function buildLatestFocusClip(bounds, latestWidthRatio) {
+  const widthRatio = normalizeLatestWidthRatio(latestWidthRatio);
+  const clipWidth = Math.max(320, Math.min(bounds.width, Math.round(bounds.width * widthRatio)));
+  const clipX = bounds.x + Math.max(0, bounds.width - clipWidth);
+  return {
+    x: clipX,
+    y: bounds.y,
+    width: clipWidth,
+    height: bounds.height,
+    scale: 1,
+  };
+}
+
+function normalizeLatestWidthRatio(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return 0.42;
+  if (numericValue < 0.2) return 0.2;
+  if (numericValue > 1) return 1;
+  return numericValue;
 }

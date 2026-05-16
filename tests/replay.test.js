@@ -317,6 +317,19 @@ describe('trade()', () => {
       (err) => err.message.includes('not started'),
     );
   });
+
+  it('throws when buy does not open a position', async () => {
+    const { _deps } = mockDeps({
+      'isReplayStarted': true,
+      'buy': undefined,
+      'position': null,
+      'realizedPL': null,
+    });
+    await assert.rejects(
+      () => trade({ action: 'buy', _deps }),
+      (err) => err.message.includes('did not open a position'),
+    );
+  });
 });
 
 // ── status() ─────────────────────────────────────────────────────────────

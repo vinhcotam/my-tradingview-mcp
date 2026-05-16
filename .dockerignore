@@ -1,6 +1,8 @@
-node_modules/
-screenshots/
-scripts/current.pine
+.git
+.gitignore
+node_modules
+screenshots
+tests
 temp_*
 *.log
 discovery-log.json

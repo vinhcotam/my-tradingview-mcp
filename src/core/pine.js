@@ -382,33 +382,32 @@ export async function getConsole() {
 
   const entries = await evaluate(`
     (function() {
+      var noise = [
+        /save script/i,
+        /new script name/i,
+        /upgrade now/i,
+        /intraday bar replays/i,
+        /publish script/i,
+        /add to chart/i
+      ];
+      function isNoise(text) {
+        return noise.some(function(pattern) { return pattern.test(text); });
+      }
       var results = [];
-      var rows = document.querySelectorAll('[class*="consoleRow"], [class*="log-"], [class*="consoleLine"]');
+      var rows = document.querySelectorAll(
+        '[class*="consoleRow"], [class*="consoleLine"], [class*="consoleEntry"], ' +
+        '[role="log"] [class*="row"], [class*="console"] [class*="row"], [class*="logs"] [class*="row"]'
+      );
       if (rows.length === 0) {
         var bottomArea = document.querySelector('[class*="layout__area--bottom"]')
           || document.querySelector('[class*="bottom-widgetbar-content"]');
         if (bottomArea) {
-          rows = bottomArea.querySelectorAll('[class*="message"], [class*="log"], [class*="console"]');
-        }
-      }
-      if (rows.length === 0) {
-        var pinePanel = document.querySelector('.pine-editor-container')
-          || document.querySelector('[class*="pine-editor"]')
-          || document.querySelector('[class*="layout__area--bottom"]');
-        if (pinePanel) {
-          var allSpans = pinePanel.querySelectorAll('span, div');
-          for (var s = 0; s < allSpans.length; s++) {
-            var txt = allSpans[s].textContent.trim();
-            if (/^\\d{2}:\\d{2}:\\d{2}/.test(txt) || /error|warning|info/i.test(allSpans[s].className)) {
-              rows = Array.from(rows || []);
-              rows.push(allSpans[s]);
-            }
-          }
+          rows = bottomArea.querySelectorAll('[role="log"] [class*="row"], [class*="console"] [class*="row"], [class*="logs"] [class*="row"]');
         }
       }
       for (var i = 0; i < rows.length; i++) {
         var text = rows[i].textContent.trim();
-        if (!text) continue;
+        if (!text || isNoise(text)) continue;
         var ts = null;
         var tsMatch = text.match(/^(\\d{4}-\\d{2}-\\d{2}\\s+)?\\d{2}:\\d{2}:\\d{2}/);
         if (tsMatch) ts = tsMatch[0];

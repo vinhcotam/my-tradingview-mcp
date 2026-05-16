@@ -114,8 +114,19 @@ export async function trade({ action, _deps }) {
   else if (action === 'close') await evaluate(`${rp}.closePosition()`);
   else throw new Error('Invalid action. Use: buy, sell, or close');
 
-  const position = await evaluate(wv(`${rp}.position()`));
-  const pnl = await evaluate(wv(`${rp}.realizedPL()`));
+  let position = await evaluate(wv(`${rp}.position()`));
+  let pnl = await evaluate(wv(`${rp}.realizedPL()`));
+  if (action !== 'close') {
+    for (let i = 0; i < 8; i++) {
+      if (position !== null && position !== undefined && position !== 0) break;
+      await new Promise(r => setTimeout(r, 250));
+      position = await evaluate(wv(`${rp}.position()`));
+      pnl = await evaluate(wv(`${rp}.realizedPL()`));
+    }
+    if (position === null || position === undefined || position === 0) {
+      throw new Error('Replay trade did not open a position. Replay trading may not be available for the current symbol/layout.');
+    }
+  }
   return { success: true, action, position, realized_pnl: pnl };
 }
 

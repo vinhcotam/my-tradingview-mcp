@@ -6,9 +6,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { safeString, requireFinite } from '../src/connection.js';
-import { setSymbol, setTimeframe, setType, manageIndicator, setVisibleRange } from '../src/core/chart.js';
-import { drawShape } from '../src/core/drawing.js';
+import { setSymbol, setTimeframe, setType, manageIndicator, setVisibleRange, getVisibleRange, scrollToDate, symbolInfo } from '../src/core/chart.js';
+import { drawShape, listDrawings, removeOne, clearAll } from '../src/core/drawing.js';
 
 // ── Mock helpers ─────────────────────────────────────────────────────────
 
@@ -224,6 +225,46 @@ describe('chart.js — sanitized evaluate calls', () => {
     assert.ok(call.includes('1700000000'), 'from value in call');
     assert.ok(call.includes('1700100000'), 'to value in call');
   });
+
+  it('getVisibleRange uses injected evaluate dependency', async () => {
+    const evaluate = async () => ({
+      visible_range: { from: 1700000000, to: 1700100000 },
+      bars_range: { from: 10, to: 30 },
+    });
+    const result = await getVisibleRange({ _deps: { evaluate } });
+    assert.deepEqual(result.visible_range, { from: 1700000000, to: 1700100000 });
+    assert.deepEqual(result.bars_range, { from: 10, to: 30 });
+  });
+
+  it('scrollToDate uses injected evaluate dependency', async () => {
+    const calls = [];
+    const evaluate = async (expr) => {
+      calls.push(expr);
+      if (expr.includes('.resolution()')) return '5';
+      return undefined;
+    };
+    const result = await scrollToDate({ date: '2026-01-01', _deps: { evaluate } });
+    assert.equal(result.success, true);
+    assert.ok(calls.some(c => c.includes('.resolution()')), 'reads current resolution');
+    assert.ok(calls.some(c => c.includes('zoomToBarsRange')), 'zooms to target range');
+  });
+
+  it('symbolInfo uses injected evaluate dependency', async () => {
+    const evaluate = async () => ({
+      symbol: 'OANDA:XAUUSD',
+      full_name: 'OANDA:XAUUSD',
+      exchange: 'OANDA',
+      description: 'Gold',
+      type: 'commodity',
+      pro_name: 'OANDA:XAUUSD',
+      typespecs: ['commodity'],
+      resolution: '5',
+      chart_type: 1,
+    });
+    const result = await symbolInfo({ _deps: { evaluate } });
+    assert.equal(result.symbol, 'OANDA:XAUUSD');
+    assert.equal(result.exchange, 'OANDA');
+  });
 });
 
 // ── drawing.js — safeString + requireFinite ──────────────────────────────
@@ -282,12 +323,35 @@ describe('drawing.js — sanitized evaluate calls', () => {
     assert.ok(call, 'createMultipointShape called');
     assert.ok(call.includes('"trend_line"'), 'shape name via safeString');
   });
+
+  it('listDrawings uses injected dependencies', async () => {
+    const evaluate = async () => [{ id: 'shape-1', name: 'horizontal_line' }];
+    const result = await listDrawings({ _deps: { evaluate, getChartApi: async () => 'window.__api' } });
+    assert.equal(result.success, true);
+    assert.equal(result.count, 1);
+    assert.equal(result.shapes[0].id, 'shape-1');
+  });
+
+  it('removeOne uses injected dependencies', async () => {
+    const evaluate = async () => ({ removed: true, entity_id: 'shape-1', remaining_shapes: 0 });
+    const result = await removeOne({ entity_id: 'shape-1', _deps: { evaluate, getChartApi: async () => 'window.__api' } });
+    assert.equal(result.success, true);
+    assert.equal(result.removed, true);
+  });
+
+  it('clearAll uses injected dependencies', async () => {
+    const calls = [];
+    const evaluate = async (expr) => { calls.push(expr); };
+    const result = await clearAll({ _deps: { evaluate, getChartApi: async () => 'window.__api' } });
+    assert.equal(result.success, true);
+    assert.ok(calls.some(c => c.includes('removeAllShapes')), 'removeAllShapes called');
+  });
 });
 
 // ── Source-level audit ───────────────────────────────────────────────────
 
 describe('source audit — no unsafe interpolation patterns', () => {
-  const CORE_DIR = new URL('../src/core/', import.meta.url).pathname;
+  const CORE_DIR = fileURLToPath(new URL('../src/core/', import.meta.url));
   const coreFiles = readdirSync(CORE_DIR).filter(f => f.endsWith('.js'));
 
   for (const file of coreFiles) {

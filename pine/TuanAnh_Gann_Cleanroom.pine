@@ -1,0 +1,290 @@
+//@version=6
+indicator("TuanAnh_Gann_Cleanroom", shorttitle="TA Gann CR", overlay=true, max_lines_count=500, max_labels_count=200)
+
+groupVisual = "Hien thi"
+showZigzag = input.bool(true, "Hien zigzag", group=groupVisual)
+zigzagColor = input.color(color.black, "Mau zigzag", group=groupVisual)
+zigzagWidth = input.int(2, "Do day zigzag", minval=1, maxval=4, group=groupVisual)
+showSwingDots = input.bool(true, "Hien cham swing", group=groupVisual)
+highDotColor = input.color(color.rgb(0, 188, 212), "Mau swing high", group=groupVisual)
+lowDotColor = input.color(color.rgb(224, 64, 251), "Mau swing low", group=groupVisual)
+showGT = input.bool(true, "Hien nhan GT", group=groupVisual)
+gtTextColor = input.color(color.rgb(255, 0, 234), "Mau chu GT", group=groupVisual)
+gtSizeInput = input.string("small", "Co GT", options=["tiny", "small", "normal", "large"], group=groupVisual)
+showLevels = input.bool(true, "Hien level ngang", group=groupVisual)
+resistanceColor = input.color(color.rgb(6, 131, 147), "Mau resistance", group=groupVisual)
+supportColor = input.color(color.rgb(255, 0, 234), "Mau support", group=groupVisual)
+levelWidth = input.int(2, "Do day level", minval=1, maxval=4, group=groupVisual)
+levelStyleInput = input.string("dot", "Kieu level", options=["solid", "dot", "dash"], group=groupVisual)
+
+groupLogic = "Logic Clean-Room"
+pivotLeft = input.int(1, "Pivot trai", minval=1, maxval=5, group=groupLogic)
+pivotRight = input.int(1, "Pivot phai", minval=1, maxval=5, group=groupLogic)
+requireHigherHighForGT = input.bool(true, "GT can swing high > swing high truoc", group=groupLogic)
+
+groupLimits = "Gioi han"
+maxZigzagSegments = input.int(260, "So doan zigzag toi da", minval=50, maxval=350, group=groupLimits)
+maxArchivedLevels = input.int(120, "So level lich su toi da", minval=20, maxval=180, group=groupLimits)
+maxGtLabels = input.int(80, "So nhan GT toi da", minval=10, maxval=150, group=groupLimits)
+
+levelStyle = levelStyleInput == "dash" ? line.style_dashed : levelStyleInput == "solid" ? line.style_solid : line.style_dotted
+gtLabelSize = gtSizeInput == "tiny" ? size.tiny : gtSizeInput == "normal" ? size.normal : gtSizeInput == "large" ? size.large : size.small
+
+ph = ta.pivothigh(high, pivotLeft, pivotRight)
+pl = ta.pivotlow(low, pivotLeft, pivotRight)
+highPivotIndex = bar_index - pivotRight
+lowPivotIndex = bar_index - pivotRight
+
+var int lastPivotType = 0
+var int lastPivotIndex = na
+var float lastPivotPrice = na
+var line[] zigzagLines = array.new_line()
+
+var line[] activeSupportLines = array.new_line()
+var float[] activeSupportPrices = array.new_float()
+var line[] activeResistanceLines = array.new_line()
+var float[] activeResistancePrices = array.new_float()
+var line[] archivedLevelLines = array.new_line()
+var label[] gtLabels = array.new_label()
+
+var float previousHighPivotPrice = na
+var int previousHighPivotIndex = na
+var float anchorLowPrice = na
+var int anchorLowIndex = na
+var float candidateGtHighPrice = na
+var int candidateGtHighIndex = na
+
+trimZigzags() =>
+    while array.size(zigzagLines) > maxZigzagSegments
+        oldLine = array.shift(zigzagLines)
+        line.delete(oldLine)
+
+trimArchivedLevels() =>
+    while array.size(archivedLevelLines) > maxArchivedLevels
+        oldLine = array.shift(archivedLevelLines)
+        line.delete(oldLine)
+
+trimGtLabels() =>
+    while array.size(gtLabels) > maxGtLabels
+        oldLabel = array.shift(gtLabels)
+        label.delete(oldLabel)
+
+registerArchivedLevel(levelLine) =>
+    array.push(archivedLevelLines, levelLine)
+    trimArchivedLevels()
+
+updateActiveLevels() =>
+    if showLevels
+        if array.size(activeSupportLines) > 0
+            for i = 0 to array.size(activeSupportLines) - 1
+                line.set_x2(array.get(activeSupportLines, i), bar_index)
+        if array.size(activeResistanceLines) > 0
+            for i = 0 to array.size(activeResistanceLines) - 1
+                line.set_x2(array.get(activeResistanceLines, i), bar_index)
+
+updateActiveLevels()
+
+int firstType = 0
+int firstIndex = na
+float firstPrice = na
+int secondType = 0
+int secondIndex = na
+float secondPrice = na
+
+if not na(ph) and not na(pl)
+    bool bullishPivotBar = close[pivotRight] >= open[pivotRight]
+    if bullishPivotBar
+        firstType := -1
+        firstIndex := lowPivotIndex
+        firstPrice := pl
+        secondType := 1
+        secondIndex := highPivotIndex
+        secondPrice := ph
+    else
+        firstType := 1
+        firstIndex := highPivotIndex
+        firstPrice := ph
+        secondType := -1
+        secondIndex := lowPivotIndex
+        secondPrice := pl
+else if not na(ph)
+    firstType := 1
+    firstIndex := highPivotIndex
+    firstPrice := ph
+else if not na(pl)
+    firstType := -1
+    firstIndex := lowPivotIndex
+    firstPrice := pl
+
+bool newGtSignal = false
+float newGtPrice = na
+
+if firstType != 0
+    if showZigzag
+        if lastPivotType == 0
+            lastPivotType := firstType
+            lastPivotIndex := firstIndex
+            lastPivotPrice := firstPrice
+        else if lastPivotType == firstType
+            bool replaceFirstPivot = firstType == 1 ? firstPrice >= lastPivotPrice : firstPrice <= lastPivotPrice
+            if replaceFirstPivot
+                lastPivotType := firstType
+                lastPivotIndex := firstIndex
+                lastPivotPrice := firstPrice
+                if array.size(zigzagLines) > 0
+                    lastLine = array.get(zigzagLines, array.size(zigzagLines) - 1)
+                    line.set_x2(lastLine, firstIndex)
+                    line.set_y2(lastLine, firstPrice)
+        else
+            newZigzag = line.new(lastPivotIndex, lastPivotPrice, firstIndex, firstPrice, xloc=xloc.bar_index, extend=extend.none, color=zigzagColor, width=zigzagWidth)
+            array.push(zigzagLines, newZigzag)
+            trimZigzags()
+            lastPivotType := firstType
+            lastPivotIndex := firstIndex
+            lastPivotPrice := firstPrice
+
+    if firstType == 1
+        if showLevels
+            if array.size(activeResistanceLines) > 0
+                for i = array.size(activeResistanceLines) - 1 to 0 by -1
+                    resistancePrice = array.get(activeResistancePrices, i)
+                    if firstPrice > resistancePrice
+                        resistanceLine = array.get(activeResistanceLines, i)
+                        line.set_x2(resistanceLine, firstIndex)
+                        array.remove(activeResistanceLines, i)
+                        array.remove(activeResistancePrices, i)
+                        registerArchivedLevel(resistanceLine)
+
+            newResistance = line.new(firstIndex, firstPrice, bar_index, firstPrice, xloc=xloc.bar_index, extend=extend.none, color=resistanceColor, width=levelWidth, style=levelStyle)
+            array.push(activeResistanceLines, newResistance)
+            array.push(activeResistancePrices, firstPrice)
+
+        bool qualifiesFirstHigh = na(previousHighPivotPrice) or not requireHigherHighForGT or firstPrice > previousHighPivotPrice
+        if not na(anchorLowPrice) and qualifiesFirstHigh
+            if na(candidateGtHighPrice) or firstPrice >= candidateGtHighPrice
+                candidateGtHighPrice := firstPrice
+                candidateGtHighIndex := firstIndex
+
+        previousHighPivotPrice := firstPrice
+        previousHighPivotIndex := firstIndex
+    else
+        if showLevels
+            if array.size(activeSupportLines) > 0
+                for i = array.size(activeSupportLines) - 1 to 0 by -1
+                    supportPrice = array.get(activeSupportPrices, i)
+                    if firstPrice < supportPrice
+                        supportLine = array.get(activeSupportLines, i)
+                        line.set_x2(supportLine, firstIndex)
+                        array.remove(activeSupportLines, i)
+                        array.remove(activeSupportPrices, i)
+                        registerArchivedLevel(supportLine)
+
+            newSupport = line.new(firstIndex, firstPrice, bar_index, firstPrice, xloc=xloc.bar_index, extend=extend.none, color=supportColor, width=levelWidth, style=levelStyle)
+            array.push(activeSupportLines, newSupport)
+            array.push(activeSupportPrices, firstPrice)
+
+        if na(anchorLowPrice)
+            anchorLowPrice := firstPrice
+            anchorLowIndex := firstIndex
+        else if firstPrice < anchorLowPrice
+            bool firstHasCandidate = not na(candidateGtHighPrice) and candidateGtHighIndex > anchorLowIndex
+            if firstHasCandidate
+                newGtSignal := true
+                newGtPrice := candidateGtHighPrice
+                if showGT
+                    gtLabel = label.new(candidateGtHighIndex, candidateGtHighPrice, "GT", xloc=xloc.bar_index, style=label.style_none, textcolor=gtTextColor, size=gtLabelSize)
+                    array.push(gtLabels, gtLabel)
+                    trimGtLabels()
+            anchorLowPrice := firstPrice
+            anchorLowIndex := firstIndex
+            candidateGtHighPrice := na
+            candidateGtHighIndex := na
+
+if secondType != 0
+    if showZigzag
+        if lastPivotType == 0
+            lastPivotType := secondType
+            lastPivotIndex := secondIndex
+            lastPivotPrice := secondPrice
+        else if lastPivotType == secondType
+            bool replaceSecondPivot = secondType == 1 ? secondPrice >= lastPivotPrice : secondPrice <= lastPivotPrice
+            if replaceSecondPivot
+                lastPivotType := secondType
+                lastPivotIndex := secondIndex
+                lastPivotPrice := secondPrice
+                if array.size(zigzagLines) > 0
+                    lastLine = array.get(zigzagLines, array.size(zigzagLines) - 1)
+                    line.set_x2(lastLine, secondIndex)
+                    line.set_y2(lastLine, secondPrice)
+        else
+            newZigzag = line.new(lastPivotIndex, lastPivotPrice, secondIndex, secondPrice, xloc=xloc.bar_index, extend=extend.none, color=zigzagColor, width=zigzagWidth)
+            array.push(zigzagLines, newZigzag)
+            trimZigzags()
+            lastPivotType := secondType
+            lastPivotIndex := secondIndex
+            lastPivotPrice := secondPrice
+
+    if secondType == 1
+        if showLevels
+            if array.size(activeResistanceLines) > 0
+                for i = array.size(activeResistanceLines) - 1 to 0 by -1
+                    resistancePrice = array.get(activeResistancePrices, i)
+                    if secondPrice > resistancePrice
+                        resistanceLine = array.get(activeResistanceLines, i)
+                        line.set_x2(resistanceLine, secondIndex)
+                        array.remove(activeResistanceLines, i)
+                        array.remove(activeResistancePrices, i)
+                        registerArchivedLevel(resistanceLine)
+
+            newResistance = line.new(secondIndex, secondPrice, bar_index, secondPrice, xloc=xloc.bar_index, extend=extend.none, color=resistanceColor, width=levelWidth, style=levelStyle)
+            array.push(activeResistanceLines, newResistance)
+            array.push(activeResistancePrices, secondPrice)
+
+        bool qualifiesSecondHigh = na(previousHighPivotPrice) or not requireHigherHighForGT or secondPrice > previousHighPivotPrice
+        if not na(anchorLowPrice) and qualifiesSecondHigh
+            if na(candidateGtHighPrice) or secondPrice >= candidateGtHighPrice
+                candidateGtHighPrice := secondPrice
+                candidateGtHighIndex := secondIndex
+
+        previousHighPivotPrice := secondPrice
+        previousHighPivotIndex := secondIndex
+    else
+        if showLevels
+            if array.size(activeSupportLines) > 0
+                for i = array.size(activeSupportLines) - 1 to 0 by -1
+                    supportPrice = array.get(activeSupportPrices, i)
+                    if secondPrice < supportPrice
+                        supportLine = array.get(activeSupportLines, i)
+                        line.set_x2(supportLine, secondIndex)
+                        array.remove(activeSupportLines, i)
+                        array.remove(activeSupportPrices, i)
+                        registerArchivedLevel(supportLine)
+
+            newSupport = line.new(secondIndex, secondPrice, bar_index, secondPrice, xloc=xloc.bar_index, extend=extend.none, color=supportColor, width=levelWidth, style=levelStyle)
+            array.push(activeSupportLines, newSupport)
+            array.push(activeSupportPrices, secondPrice)
+
+        if na(anchorLowPrice)
+            anchorLowPrice := secondPrice
+            anchorLowIndex := secondIndex
+        else if secondPrice < anchorLowPrice
+            bool secondHasCandidate = not na(candidateGtHighPrice) and candidateGtHighIndex > anchorLowIndex
+            if secondHasCandidate
+                newGtSignal := true
+                newGtPrice := candidateGtHighPrice
+                if showGT
+                    gtLabel = label.new(candidateGtHighIndex, candidateGtHighPrice, "GT", xloc=xloc.bar_index, style=label.style_none, textcolor=gtTextColor, size=gtLabelSize)
+                    array.push(gtLabels, gtLabel)
+                    trimGtLabels()
+            anchorLowPrice := secondPrice
+            anchorLowIndex := secondIndex
+            candidateGtHighPrice := na
+            candidateGtHighIndex := na
+
+plotshape(showSwingDots ? ph : na, title="Swing High", style=shape.triangledown, location=location.absolute, offset=-pivotRight, color=highDotColor, size=size.tiny)
+plotshape(showSwingDots ? pl : na, title="Swing Low", style=shape.triangleup, location=location.absolute, offset=-pivotRight, color=lowDotColor, size=size.tiny)
+
+alertcondition(newGtSignal, title="GT moi", message="TuanAnh_Gann_Cleanroom co GT moi tren {{ticker}} khung {{interval}}")
+
+if newGtSignal and barstate.isconfirmed
+    alert("GT moi | Symbol: " + syminfo.tickerid + " | Timeframe: " + timeframe.period + " | Gia: " + str.tostring(newGtPrice, format.mintick), alert.freq_once_per_bar_close)
