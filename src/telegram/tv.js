@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { basename, dirname, join } from 'path';
+import { basename, dirname, join, win32 } from 'path';
 import { fileURLToPath } from 'url';
 import { access } from 'fs/promises';
 import { constants } from 'fs';
@@ -7,6 +7,20 @@ import { formatBooleanText, formatUnixSeconds, localizeErrorMessage } from './te
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = join(dirname(__dirname), 'cli', 'index.js');
+
+/**
+ * Extract filename from path, handling both Unix and Windows paths.
+ * @param {string} filePath - File path (may contain \\ or /)
+ * @returns {string} Filename without directory
+ */
+function extractFilename(filePath) {
+  if (!filePath) return 'screenshot.png';
+  // Try win32.basename first for Windows paths, fallback to posix
+  const winName = win32.basename(filePath);
+  const posixName = basename(filePath);
+  // Return the shorter one (likely the actual filename, not full path)
+  return winName.length < posixName.length ? winName : posixName;
+}
 
 export async function runTvCommand(args, env = process.env) {
   const command = Array.isArray(args) ? { args } : args;
@@ -81,9 +95,12 @@ export function formatTvResult(args, result) {
 }
 
 export function screenshotCaption(args, result) {
-  const file = result?.file_path ? basename(result.file_path) : 'screenshot.png';
+  const file = extractFilename(result?.file_path);
   return truncateMessage(`Ảnh chụp từ TradingView\nLệnh: tv ${args.join(' ')}\nTệp: ${file}`, 1024);
 }
+
+// Export for testing
+export { formatStatusResult, formatQuoteResult };
 
 export function truncateMessage(text, maxLength = 3800) {
   const value = String(text || '');

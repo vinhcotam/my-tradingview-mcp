@@ -5,6 +5,13 @@ let targetInfo = null;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 500;
 
+// Cache for connection state to avoid repeated checks
+const connectionCache = {
+  lastCheck: 0,
+  alive: false,
+  ttl: 2000, // 2 seconds cache for liveness check
+};
+
 export function getConnectionConfig(env = process.env) {
   const host = env.TV_CDP_HOST || env.CDP_HOST || 'localhost';
   const rawPort = env.TV_CDP_PORT || env.CDP_PORT || '9222';
@@ -57,13 +64,22 @@ export function requireFinite(value, name) {
 
 export async function getClient() {
   if (client) {
+    // Use cached result if still valid
+    const now = Date.now();
+    if (connectionCache.alive && (now - connectionCache.lastCheck) < connectionCache.ttl) {
+      return client;
+    }
+    
     try {
       // Quick liveness check
       await client.Runtime.evaluate({ expression: '1', returnByValue: true });
+      connectionCache.alive = true;
+      connectionCache.lastCheck = Date.now();
       return client;
     } catch {
       client = null;
       targetInfo = null;
+      connectionCache.alive = false;
     }
   }
   return connect();
@@ -114,19 +130,25 @@ export async function getTargetInfo() {
 
 export async function evaluate(expression, opts = {}) {
   const c = await getClient();
-  const result = await c.Runtime.evaluate({
-    expression,
-    returnByValue: true,
-    awaitPromise: opts.awaitPromise ?? false,
-    ...opts,
-  });
-  if (result.exceptionDetails) {
-    const msg = result.exceptionDetails.exception?.description
-      || result.exceptionDetails.text
-      || 'Unknown evaluation error';
-    throw new Error(`JS evaluation error: ${msg}`);
+  try {
+    const result = await c.Runtime.evaluate({
+      expression,
+      returnByValue: true,
+      awaitPromise: opts.awaitPromise ?? false,
+      ...opts,
+    });
+    if (result.exceptionDetails) {
+      const msg = result.exceptionDetails.exception?.description
+        || result.exceptionDetails.text
+        || 'Unknown evaluation error';
+      throw new Error(`JS evaluation error: ${msg}`);
+    }
+    return result.result?.value;
+  } catch (err) {
+    // Invalidate cache on error to force reconnection check
+    connectionCache.alive = false;
+    throw err;
   }
-  return result.result?.value;
 }
 
 export async function evaluateAsync(expression) {

@@ -3,9 +3,9 @@ import { jsonResult } from './_format.js';
 import * as core from '../core/data.js';
 
 export function registerDataTools(server) {
-  server.tool('data_get_ohlcv', 'Get OHLCV bar data from the chart. Use summary=true for compact stats instead of all bars (saves context).', {
+  server.tool('data_get_ohlcv', 'Get OHLCV bar data from the chart. Use summary=false to get all bars (default is summary=true for compact stats).', {
     count: z.coerce.number().optional().describe('Number of bars to retrieve (max 500, default 100)'),
-    summary: z.coerce.boolean().optional().describe('Return summary stats (high, low, open, close, avg volume, range) instead of all bars — much smaller output'),
+    summary: z.coerce.boolean().optional().default(true).describe('Return summary stats (high, low, open, close, avg volume, range) instead of all bars — much smaller output. Set false to get full bar array.'),
   }, async ({ count, summary }) => {
     try { return jsonResult(await core.getOhlcv({ count, summary })); }
     catch (err) { return jsonResult({ success: false, error: err.message }, true); }
