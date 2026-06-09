@@ -2,62 +2,12 @@
  * Core data access logic.
  */
 import { evaluate, evaluateAsync, KNOWN_PATHS, safeString } from '../connection.js';
+import { buildGraphicsJS, findStrategyDataSource } from './helpers.js';
 
 const MAX_OHLCV_BARS = 500;
 const MAX_TRADES = 20;
 const CHART_API = KNOWN_PATHS.chartApi;
 const BARS_PATH = KNOWN_PATHS.mainSeriesBars;
-
-function buildGraphicsJS(collectionName, mapKey, filter) {
-  return `
-    (function() {
-      var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
-      var model = chart.model();
-      var sources = model.model().dataSources();
-      var results = [];
-      var filter = ${safeString(filter || '')};
-      for (var si = 0; si < sources.length; si++) {
-        var s = sources[si];
-        if (!s.metaInfo) continue;
-        try {
-          var meta = s.metaInfo();
-          var name = meta.description || meta.shortDescription || '';
-          if (!name) continue;
-          if (filter && name.indexOf(filter) === -1) continue;
-          var g = s._graphics;
-          if (!g || !g._primitivesCollection) continue;
-          var pc = g._primitivesCollection;
-          var items = [];
-          try {
-            var outer = pc.${collectionName};
-            if (outer) {
-              var inner = outer.get('${mapKey}');
-              if (inner) {
-                var coll = inner.get(false);
-                if (coll && coll._primitivesDataById && coll._primitivesDataById.size > 0) {
-                  coll._primitivesDataById.forEach(function(v, id) { items.push({id: id, raw: v}); });
-                }
-              }
-            }
-          } catch(e) {}
-          if (items.length === 0 && '${collectionName}' === 'dwgtablecells') {
-            try {
-              var tcOuter = pc.dwgtablecells;
-              if (tcOuter) {
-                var tcColl = tcOuter.get('tableCells');
-                if (tcColl && tcColl._primitivesDataById && tcColl._primitivesDataById.size > 0) {
-                  tcColl._primitivesDataById.forEach(function(v, id) { items.push({id: id, raw: v}); });
-                }
-              }
-            } catch(e) {}
-          }
-          if (items.length > 0) results.push({name: name, count: items.length, items: items});
-        } catch(e) {}
-      }
-      return results;
-    })()
-  `;
-}
 
 export async function getOhlcv({ count, summary } = {}) {
   const limit = Math.min(count || 100, MAX_OHLCV_BARS);
@@ -133,10 +83,15 @@ export async function getIndicator({ entity_id }) {
 }
 
 export async function getStrategyResults() {
+  const stratResult = await findStrategyDataSource();
+  if (!stratResult.found) {
+    return { success: true, metric_count: 0, source: 'internal_api', metrics: {}, error: stratResult.error };
+  }
+
   const results = await evaluate(`
     (function() {
       try {
-        var chart = ${CHART_API}._chartWidget;
+        var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
         var sources = chart.model().model().dataSources();
         var strat = null;
         for (var i = 0; i < sources.length; i++) {
@@ -166,10 +121,16 @@ export async function getStrategyResults() {
 
 export async function getTrades({ max_trades } = {}) {
   const limit = Math.min(max_trades || 20, MAX_TRADES);
+  
+  const stratResult = await findStrategyDataSource();
+  if (!stratResult.found) {
+    return { success: true, trade_count: 0, source: 'internal_api', trades: [], error: stratResult.error };
+  }
+
   const trades = await evaluate(`
     (function() {
       try {
-        var chart = ${CHART_API}._chartWidget;
+        var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
         var sources = chart.model().model().dataSources();
         var strat = null;
         for (var i = 0; i < sources.length; i++) {
@@ -202,10 +163,15 @@ export async function getTrades({ max_trades } = {}) {
 }
 
 export async function getEquity() {
+  const stratResult = await findStrategyDataSource();
+  if (!stratResult.found) {
+    return { success: true, data_points: 0, source: 'internal_api', data: [], error: stratResult.error };
+  }
+
   const equity = await evaluate(`
     (function() {
       try {
-        var chart = ${CHART_API}._chartWidget;
+        var chart = window.TradingViewApi._activeChartWidgetWV.value()._chartWidget;
         var sources = chart.model().model().dataSources();
         var strat = null;
         for (var i = 0; i < sources.length; i++) {
@@ -386,7 +352,7 @@ export async function getPineLabels({ study_filter, max_labels, verbose } = {}) 
   const raw = await evaluate(buildGraphicsJS('dwglabels', 'labels', filter));
   if (!raw || raw.length === 0) return { success: true, study_count: 0, studies: [] };
 
-  const limit = max_labels || 50;
+  const limit = Math.min(max_labels || 50, 200); // Cap at 200 to prevent context overflow
   const studies = raw.map(s => {
     let labels = s.items.map(item => {
       const v = item.raw;
